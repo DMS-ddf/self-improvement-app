@@ -3,6 +3,3 @@
 /build-*
 *.exe
 *.dll
-
-# VSCode settings
-.vscode/
