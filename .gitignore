@@ -1,0 +1,8 @@
+# Build artifacts
+/build/
+/build-*
+*.exe
+*.dll
+
+# VSCode settings
+.vscode/
