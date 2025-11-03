@@ -11,9 +11,13 @@ set(CMAKE_AUTOMOC ON) # AUTO special instruments Qt for file processing
 set(CMAKE_AUTORCC ON) 
 set(CMAKE_AUTOUIC ON) 
 
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets) # find Qt and connect components
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Sql) # find Qt and connect components
 
-add_executable(SelfImprovementApp main.cpp)
-# tell CMake to create executable file (named SelfImprovementApp) from the source main.cpp
+add_executable(SelfImprovementApp 
+main.cpp 
+MainWindow.h
+MainWindow.cpp
+)
+# tell CMake to create executable file (named SelfImprovementApp) from the source main.cpp and ...
 
-target_link_libraries(SelfImprovementApp PRIVATE Qt6::Widgets) # link Qt lib
+target_link_libraries(SelfImprovementApp PRIVATE Qt6::Core Qt6::Widgets Qt6::Sql) # link Qt lib
