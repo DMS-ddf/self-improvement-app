@@ -2,29 +2,30 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "(gdb) Launch",
+            "name": "Debug SelfImprovementApp",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${command:cmake.launchTargetPath}",
+            // Путь к исполняемому файлу, который собирается в папке build
+            "program": "${workspaceFolder}/build/SelfImprovementApp.exe",
             "args": [],
             "stopAtEntry": false,
+            // Рабочая директория приложения при запуске.
+            // Важно для относительных путей (например, чтобы найти файл базы данных)
             "cwd": "${workspaceFolder}",
             "externalConsole": false,
             "MIMode": "gdb",
             "miDebuggerPath": "gdb",
             "setupCommands": [
                 {
+                    // Включает красивый вывод сложных структур данных при отладке
                     "description": "Enable pretty-printing for gdb",
                     "text": "-enable-pretty-printing",
                     "ignoreFailures": true
                 }
             ],
-            "environment": [
-                {
-                    "name": "PATH",
-                    "value": "Z:/Qt/6.10.0/mingw_64/bin;${env:PATH}"
-                }
-            ]
+            // Мастхэв: автоматически запускает сборку перед началом отладки.
+            // Гарантирует, что мы всегда запускаем актуальную версию кода.
+            "preLaunchTask": "${defaultBuildTask}"
         }
     ]
 }
