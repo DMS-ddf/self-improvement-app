@@ -8,6 +8,7 @@
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QDebug>
+#include <QMessageBox>
 
 AddTaskDialog::AddTaskDialog(QWidget *parent) : QDialog(parent)
 {
@@ -19,7 +20,8 @@ AddTaskDialog::AddTaskDialog(QWidget *parent) : QDialog(parent)
 
     // Загружаем список доступных статусов из БД в выпадающий список
     QSqlQuery query("SELECT name FROM STATUS");
-    while (query.next()) {
+    while (query.next())
+    {
         m_statusComboBox->addItem(query.value(0).toString());
     }
 
@@ -51,4 +53,37 @@ QString AddTaskDialog::getTaskDescription() const
 QString AddTaskDialog::getSelectedStatus() const
 {
     return m_statusComboBox->currentText();
+}
+
+void AddTaskDialog::setTaskData(const QString &description, const QString &status)
+{
+    // Устанавливаем текст в поле ввода
+    m_descriptionEdit->setText(description);
+
+    // Находим и устанавливаем нужный статус в выпадающем списке
+    int index = m_statusComboBox->findText(status);
+    if (index != -1)
+    { // -1 означает, что текст не найден
+        m_statusComboBox->setCurrentIndex(index);
+    }
+}
+
+void AddTaskDialog::accept()
+{
+    // .trimmed() убирает пробелы по краям и проверяет, не осталась ли строка пустой
+    if (m_descriptionEdit->text().trimmed().isEmpty()) 
+    {
+        // 1. Если поле пустое — показываем ошибку
+        QMessageBox::warning(this, tr("Ошибка валидации"),
+                             tr("Поле 'Задание' не может быть пустым."));
+        
+        // 2. И ГЛАВНОЕ: НЕ вызываем QDialog::accept(),
+        //    чтобы диалог НЕ закрылся.
+    } 
+    else 
+    {
+        // 3. Если всё в порядке — вызываем базовый метод,
+        //    который закроет диалог и вернет QDialog::Accepted.
+        QDialog::accept();
+    }
 }

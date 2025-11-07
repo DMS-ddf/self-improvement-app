@@ -10,15 +10,22 @@ class QComboBox;
 
 class AddTaskDialog : public QDialog
 {
-    Q_OBJECT // Макрос, необходимый для работы сигналов и слотов Qt
+Q_OBJECT // Макрос, необходимый для работы сигналов и слотов Qt
 
-public:
+    public :
     // explicit запрещает неявные преобразования типов при создании диалога
     explicit AddTaskDialog(QWidget *parent = nullptr);
 
     // Геттеры для получения введенных пользователем данных
     QString getTaskDescription() const;
     QString getSelectedStatus() const;
+
+    // Заполняет поля диалога данными существующей задачи
+    void setTaskData(const QString &description, const QString &status);
+
+public slots:
+    // Переопределяем стандартный слот, который вызывается при нажатии "ОК"
+    virtual void accept() override;
 
 private:
     // Указатели на виджеты, которые мы создадим в .cpp файле.

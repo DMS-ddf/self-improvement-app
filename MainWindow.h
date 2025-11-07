@@ -13,10 +13,9 @@ class QAction;
 
 class MainWindow : public QMainWindow
 {
-    Q_OBJECT // Макрос обязателен для любого класса, использующего сигналы и слоты Qt
+Q_OBJECT // Макрос обязателен для любого класса, использующего сигналы и слоты Qt
 
-public:
-    MainWindow(QWidget *parent = nullptr);
+    public : MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
 private slots:
@@ -27,6 +26,7 @@ private slots:
     void onCustomContextMenu(const QPoint &pos); // Вызывается при клике ПКМ
     void onDeleteSoft();                         // "Мягкое" удаление (в корзину)
     void onDeleteHard();                         // Полное удаление из базы
+    void onEditTask();                           // Изменение существующего поля
 
 private:
     // Метод для инициализации подключения к базе данных и создания таблиц
@@ -40,6 +40,9 @@ private:
     // Элементы панели инструментов
     QToolBar *m_mainToolBar;
     QAction *m_addTaskAction;
+    QAction *m_editTaskAction;
+
+    int m_statusDoneId; // Сохраним здесь ID для статуса "Сделано"
 };
 
 #endif // MAINWINDOW_H
