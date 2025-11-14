@@ -16,6 +16,8 @@
 #include <QToolBar>
 #include <QMessageBox>
 #include <QDateTime>
+#include <QStandardPaths>
+#include <QDir>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -90,7 +92,7 @@ MainWindow::MainWindow(QWidget *parent)
     // Это упрощает логику удаления и выглядит лучше.
     tableView->setSelectionBehavior(QAbstractItemView::SelectRows);
     tableView->setSelectionMode(QAbstractItemView::SingleSelection);
-    tableView->setEditTriggers(QAbstractItemView::NoEditTriggers); //Запрет изменений по double-click RMB.
+    tableView->setEditTriggers(QAbstractItemView::NoEditTriggers); // Запрет изменений по double-click RMB.
 
     // Подгоняем ширину столбцов под содержимое
     tableView->resizeColumnsToContents();
@@ -131,9 +133,22 @@ MainWindow::~MainWindow()
 void MainWindow::initDB()
 {
     m_db = QSqlDatabase::addDatabase("QSQLITE");
-    // Используем относительный путь, чтобы БД лежала рядом с исходниками, а не в папке build
-    m_db.setDatabaseName("../tracker.db");
+    // 1. Находим "правильное" место для хранения данных
+    // (Это будет C:/Users/ТвоёИмя/AppData/Local/SelfImprovementApp)
+    QString dataPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
 
+    // 2. Убеждаемся, что эта папка существует
+    QDir dir(dataPath);
+    if (!dir.exists())
+    {
+        dir.mkpath("."); // Создаем её, если нет
+    }
+
+    // 3. Устанавливаем полный путь к БД
+    QString dbPath = dataPath + "/tracker.db";
+    qDebug() << "Database path set to:" << dbPath;
+
+    m_db.setDatabaseName(dbPath);
     if (!m_db.open())
     {
         qCritical() << "Database connection failed:" << m_db.lastError().text();

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+
+    <Product Id="*" 
+             Name="Self Improvement Tracker" 
+             Language="1049" 
+             Version="1.0.0" 
+             Manufacturer="DarkFox" 
+             UpgradeCode="bae34466-5e34-4aa5-a213-9f7afdf8229f"> <Package InstallerVersion="200" Compressed="yes" Platform="x64" />
+        <Media Id="1" Cabinet="media1.cab" EmbedCab="yes" />
+
+        <UIRef Id="WixUI_InstallDir" />
+        <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+
+        <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="ProgramFiles64Folder">
+                <Directory Id="INSTALLFOLDER" Name="Self Improvement Tracker" />
+            </Directory>
+            <Directory Id="ProgramMenuFolder">
+                <Directory Id="ApplicationProgramsFolder" Name="Self Improvement Tracker"/>
+            </Directory>
+        </Directory>
+        
+        <DirectoryRef Id="ApplicationProgramsFolder">
+            <Component Id="ApplicationShortcut" Guid="e6d565f6-9019-44af-b193-ea9871e58a86"> <Shortcut Id="StartMenuShortcut"
+                          Name="Self Improvement Tracker"
+                          Description="Start tracker"
+                          Target="[!fil75F7063D6FBA8B0AA0D09F16AFAB2FB1]" WorkingDirectory="INSTALLFOLDER"/>
+                          
+                <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall"/>
+                <RegistryValue Root="HKCU" Key="Software\DarkFox\SelfImprovementTracker" Name="installed" Type="integer" Value="1" KeyPath="yes"/>
+            </Component>
+        </DirectoryRef>
+
+        <Feature Id="ProductFeature" Title="MainApplication" Level="1">
+            <ComponentGroupRef Id="MyQtComponents" />
+            <ComponentRef Id="ApplicationShortcut" />
+        </Feature>
+    </Product>
+</Wix>
