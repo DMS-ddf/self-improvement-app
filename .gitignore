@@ -5,3 +5,4 @@
 *.dll
 *.db
 release/
+README_DEV.md

@@ -2,32 +2,28 @@ cmake_minimum_required(VERSION 3.16) # Минимальная версия CMake
 
 project(SelfImprovementApp LANGUAGES CXX) # Имя проекта и используемый язык (C++)
 
-# --- Глобальный фикс кодировки ---
-# Windows по умолчанию любит старые кодировки.
-# Этими флагами мы заставляем компилятор (GCC/Clang) использовать UTF-8
-# как для исходников, так и для строк внутри скомпилированной программы.
-# Это нужно, чтобы русский текст в приложении отображался корректно.
+# Обычные флаги: заставляем компилятор использовать UTF-8 для строк
 if(CMAKE_COMPILER_ID STREQUAL "GNU" OR CMAKE_COMPILER_ID STREQUAL "Clang")
     add_compile_options(-finput-charset=UTF-8)
     add_compile_options(-fexec-charset=UTF-8)
 elseif(CMAKE_COMPILER_ID STREQUAL "MSVC")
-    # Для Visual Studio свой флаг
     add_compile_options(/utf-8)
 endif()
-# --- Конец фикса ---
 
-# Путь к установленной библиотеке Qt.
-# ВАЖНО: Если перенесем проект на другой комп, этот путь придется менять!
+# Путь к установленной Qt (отредактируйте при необходимости)
 set(CMAKE_PREFIX_PATH "Z:/Qt/6.10.0/mingw_64")
+
+# Гарантируем, куда кладётся исполняемый файл (избегаем пустого CMAKE_RUNTIME_OUTPUT_DIRECTORY)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+# Политика для add_custom_command с WORKING_DIRECTORY
+cmake_policy(SET CMP0175 NEW)
 
 # Включаем современный стандарт C++17 (нужен для многих фишек Qt6)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Включаем магию Qt:
-# AUTOMOC - автоматически обрабатывает файлы с Q_OBJECT
-# AUTORCC - автоматически компилирует файлы ресурсов (.qrc)
-# AUTOUIC - автоматически создает код из файлов форм (.ui)
+# Включаем автоматическую обработку Qt (moc, rcc, uic)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
@@ -35,18 +31,14 @@ set(CMAKE_AUTOUIC ON)
 # Ищем и подключаем нужные модули Qt: Core (база), Widgets (интерфейс), Sql (базы данных)
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Sql)
 
-# Создаем исполняемый файл. Перечисляем ВСЕ .cpp и .h файлы проекта.
-add_executable(SelfImprovementApp
+# Исполняемый файл: перечисляем только .cpp
+add_executable(SelfImprovementApp WIN32
     main.cpp
-    MainWindow.h
     MainWindow.cpp
-    AddTaskDialog.h
     AddTaskDialog.cpp
 )
 
-# --- Автоматическое развертывание (Deployment) ---
-# Ищем утилиту windeployqt.exe в папке с Qt.
-# Она нужна, чтобы автоматически копировать .dll файлы рядом с нашим .exe.
+# Автоматическое развертывание: используем windeployqt для копирования DLL
 find_program(
     WINDEPLOYQT_EXECUTABLE
     NAMES windeployqt
@@ -54,9 +46,9 @@ find_program(
     NO_DEFAULT_PATH # Ищем ТОЛЬКО по указанному пути, чтобы не подцепить не ту версию
 )
 
-# Если не нашли — ругаемся и останавливаем сборку.
+# Если не нашли — показать предупреждение, но не падать (опционально можно сменить на FATAL)
 if(NOT WINDEPLOYQT_EXECUTABLE)
-    message(FATAL_ERROR "windeployqt.exe not found! Check the path 'Z:/Qt/6.10.0/mingw_64/bin'")
+    message(WARNING "windeployqt.exe not found in Z:/Qt/6.10.0/mingw_64/bin")
 endif()
 
 message(STATUS "Found windeployqt: ${WINDEPLOYQT_EXECUTABLE}")
@@ -68,7 +60,7 @@ add_custom_command(
     POST_BUILD
     COMMAND ${WINDEPLOYQT_EXECUTABLE}
     ARGS --verbose 0 --no-opengl-sw --no-translations .
-    WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY} # Выполнять в папке, куда собрался .exe (например, build/)
+    WORKING_DIRECTORY $<TARGET_FILE_DIR:SelfImprovementApp> # Выполнять в папке, куда собрался .exe
     COMMENT "Running windeployqt to copy necessary DLLs..."
 )
 

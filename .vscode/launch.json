@@ -5,13 +5,13 @@
             "name": "Debug SelfImprovementApp",
             "type": "cppdbg",
             "request": "launch",
-            // Путь к исполняемому файлу, который собирается в папке build
-            "program": "${workspaceFolder}/build/SelfImprovementApp.exe",
+            // Путь к исполняемому файлу, который собирается в папке build/bin
+            "program": "${workspaceFolder}/build/bin/SelfImprovementApp.exe",
             "args": [],
             "stopAtEntry": false,
-            // Рабочая директория приложения при запуске.
-            // Важно для относительных путей (например, чтобы найти файл базы данных)
-            "cwd": "${workspaceFolder}",
+            // Рабочая директория приложения при запуске (рекомендуется `${workspaceFolder}/build/bin`).
+            // Важно для относительных путей (например, чтобы найти файл базы данных).
+            "cwd": "${workspaceFolder}/build/bin",
             "externalConsole": false,
             "MIMode": "gdb",
             "miDebuggerPath": "gdb",

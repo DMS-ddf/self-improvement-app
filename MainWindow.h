@@ -2,10 +2,10 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
+#include <QObject>
 #include <QSqlDatabase>
 
-// Прямые объявления (forward declarations) нужны, чтобы ускорить компиляцию.
-// Вместо подключения тяжелых хедеров, мы просто говорим компилятору, что такие классы существуют.
+// Forward declarations — ускоряют компиляцию.
 class QTableView;
 class QSqlRelationalTableModel;
 class QToolBar;
@@ -13,36 +13,47 @@ class QAction;
 
 class MainWindow : public QMainWindow
 {
-Q_OBJECT // Макрос обязателен для любого класса, использующего сигналы и слоты Qt
+    Q_OBJECT
 
-    public : MainWindow(QWidget *parent = nullptr);
+public:
+    // Именованные индексы столбцов таблицы
+    enum Column {
+        COL_ID = 0,
+        COL_DESC = 1,
+        COL_DETAILS = 2,
+        COL_CREATION_DT = 3,
+        COL_COMPLETION_DT = 4,
+        COL_STATUS = 5,
+        COL_IS_DELETED = 6
+    };
+
+    MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
 private slots:
-    // Слот для обработки нажатия на кнопку "Добавить" в тулбаре
+    // Слоты: добавление, контекстное меню, удаление, редактирование
     void onAddTask();
-
-    // Слоты для работы с контекстным меню таблицы
-    void onCustomContextMenu(const QPoint &pos); // Вызывается при клике ПКМ
-    void onDeleteSoft();                         // "Мягкое" удаление (в корзину)
-    void onDeleteHard();                         // Полное удаление из базы
-    void onEditTask();                           // Изменение существующего поля
+    void onCustomContextMenu(const QPoint &pos);
+    void onDeleteSoft();
+    void onDeleteHard();
+    void onEditTask();
+    void onTableDoubleClicked(const QModelIndex &index);
 
 private:
-    // Метод для инициализации подключения к базе данных и создания таблиц
+    // Инициализация и подготовка БД
     void initDB();
 
-    // Основные элементы интерфейса и данных
-    QTableView *tableView;             // Виджет таблицы
-    QSqlDatabase m_db;                 // Объект подключения к БД
-    QSqlRelationalTableModel *m_model; // Модель данных с поддержкой связей между таблицами
+    // Виджеты и модель
+    QTableView *tableView;
+    QSqlDatabase m_db;
+    QSqlRelationalTableModel *m_model;
 
-    // Элементы панели инструментов
+    // Панель инструментов
     QToolBar *m_mainToolBar;
     QAction *m_addTaskAction;
     QAction *m_editTaskAction;
 
-    int m_statusDoneId; // Сохраним здесь ID для статуса "Сделано"
+    int m_statusDoneId; // ID статуса "Сделано"
 };
 
 #endif // MAINWINDOW_H

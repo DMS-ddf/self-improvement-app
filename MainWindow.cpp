@@ -7,6 +7,7 @@
 #include <QStatusBar>
 #include <QApplication>
 #include <QTableView>
+#include <QHeaderView>
 #include <QDebug>
 #include <QSqlQuery>
 #include <QSqlRecord>
@@ -63,13 +64,14 @@ MainWindow::MainWindow(QWidget *parent)
 
     // Устанавливаем связь: столбец 4 ('status_id') в таблице TASK
     // ссылается на столбец 'id' в таблице STATUS, а отображать нужно поле 'name'.
-    m_model->setRelation(4, QSqlRelation("STATUS", "id", "name"));
+        m_model->setRelation(MainWindow::COL_STATUS, QSqlRelation("STATUS", "id", "name"));
 
     // Устанавливаем понятные заголовки столбцов
-    m_model->setHeaderData(1, Qt::Horizontal, tr("Задание"));
-    m_model->setHeaderData(2, Qt::Horizontal, tr("Дата создания"));
-    m_model->setHeaderData(3, Qt::Horizontal, tr("Дата выполнения"));
-    m_model->setHeaderData(4, Qt::Horizontal, tr("Статус"));
+        m_model->setHeaderData(MainWindow::COL_DESC, Qt::Horizontal, tr("Задание"));
+        m_model->setHeaderData(MainWindow::COL_DETAILS, Qt::Horizontal, tr("Описание"));
+        m_model->setHeaderData(MainWindow::COL_CREATION_DT, Qt::Horizontal, tr("Дата создания"));
+        m_model->setHeaderData(MainWindow::COL_COMPLETION_DT, Qt::Horizontal, tr("Дата выполнения"));
+        m_model->setHeaderData(MainWindow::COL_STATUS, Qt::Horizontal, tr("Статус"));
 
     // Фильтр Soft Delete: показываем только не удаленные задачи.
     // Важно установить ДО вызова select().
@@ -85,8 +87,8 @@ MainWindow::MainWindow(QWidget *parent)
 
     // --- Настройка внешнего вида таблицы ---
     // Скрываем технические столбцы: ID (0) и флаг удаления (5)
-    tableView->hideColumn(0);
-    tableView->hideColumn(5);
+        tableView->hideColumn(MainWindow::COL_ID);
+        tableView->hideColumn(MainWindow::COL_IS_DELETED);
 
     // Настраиваем поведение выделения: только одна строка целиком.
     // Это упрощает логику удаления и выглядит лучше.
@@ -94,12 +96,19 @@ MainWindow::MainWindow(QWidget *parent)
     tableView->setSelectionMode(QAbstractItemView::SingleSelection);
     tableView->setEditTriggers(QAbstractItemView::NoEditTriggers); // Запрет изменений по double-click RMB.
 
-    // Подгоняем ширину столбцов под содержимое
-    tableView->resizeColumnsToContents();
+    // Подгоняем ширину столбцов: делаем столбец с описанием растягивающимся,
+    // остальные подгоняем под содержимое — это улучшает читаемость при изменении ширины окна.
+    QHeaderView *header = tableView->horizontalHeader();
+    header->setSectionResizeMode(MainWindow::COL_DESC, QHeaderView::ResizeToContents);
+    header->setSectionResizeMode(MainWindow::COL_DETAILS, QHeaderView::Stretch);
+    header->setSectionResizeMode(MainWindow::COL_CREATION_DT, QHeaderView::ResizeToContents);
+    header->setSectionResizeMode(MainWindow::COL_COMPLETION_DT, QHeaderView::ResizeToContents);
+    header->setSectionResizeMode(MainWindow::COL_STATUS, QHeaderView::ResizeToContents);
 
     // --- Настройка контекстного меню (ПКМ) ---
     tableView->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(tableView, &QTableView::customContextMenuRequested, this, &MainWindow::onCustomContextMenu);
+    connect(tableView, &QTableView::doubleClicked, this, &MainWindow::onTableDoubleClicked);
 
     // --- Панель инструментов (ToolBar) ---
     m_addTaskAction = new QAction(tr("&Добавить"), this);
@@ -141,7 +150,7 @@ void MainWindow::initDB()
     QDir dir(dataPath);
     if (!dir.exists())
     {
-        dir.mkpath("."); // Создаем её, если нет
+           dir.mkpath(dataPath); // Создаем её, если нет
     }
 
     // 3. Устанавливаем полный путь к БД
@@ -168,13 +177,14 @@ void MainWindow::initDB()
                                     "name TEXT NOT NULL UNIQUE);";
         if (!query.exec(createStatusTable))
         {
-            qCritical() << "Failed to create 'STATUS' table:" << query.lastError();
+              qCritical() << "Failed to create 'STATUS' table:" << query.lastError().text();
         }
 
         // 2. Создаем основную таблицу задач
         QString createTaskTable = "CREATE TABLE IF NOT EXISTS TASK ("
                                   "id INTEGER PRIMARY KEY AUTOINCREMENT, "
                                   "description TEXT NOT NULL, "
+                                  "details TEXT, "
                                   "creation_dt TEXT, "
                                   "completion_dt TEXT, "
                                   "status_id INTEGER, "
@@ -182,7 +192,56 @@ void MainWindow::initDB()
                                   "FOREIGN KEY(status_id) REFERENCES STATUS(id));";
         if (!query.exec(createTaskTable))
         {
-            qCritical() << "Failed to create 'TASK' table:" << query.lastError();
+              qCritical() << "Failed to create 'TASK' table:" << query.lastError().text();
+        }
+
+        // Ensure `details` column exists AND is in the expected position.
+        // Older DBs may lack the column or have it appended at the end (SQLite ALTER TABLE adds columns at the end).
+        QSqlQuery pragmaCheck(m_db);
+        QStringList cols;
+        if (pragmaCheck.exec("PRAGMA table_info('TASK');")) {
+            while (pragmaCheck.next()) {
+                cols << pragmaCheck.value("name").toString();
+            }
+        }
+
+        int idxDetails = cols.indexOf("details");
+        if (idxDetails == -1) {
+            // Column missing: add it (simple ALTER is fine)
+            qDebug() << "Adding 'details' column to existing TASK table...";
+            if (!query.exec("ALTER TABLE TASK ADD COLUMN details TEXT;")) {
+                qCritical() << "Failed to add 'details' column:" << query.lastError().text();
+            }
+        } else if (idxDetails != 2) {
+            // Column exists but in wrong position — rebuild table with desired column order
+            qDebug() << "Rebuilding TASK table to normalize column order...";
+            QString createNew = "CREATE TABLE IF NOT EXISTS TASK_new ("
+                                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                                "description TEXT NOT NULL, "
+                                "details TEXT, "
+                                "creation_dt TEXT, "
+                                "completion_dt TEXT, "
+                                "status_id INTEGER, "
+                                "is_deleted INTEGER DEFAULT 0, "
+                                "FOREIGN KEY(status_id) REFERENCES STATUS(id));";
+            if (!query.exec("BEGIN TRANSACTION;")) qWarning() << query.lastError().text();
+            if (!query.exec(createNew)) {
+                qCritical() << "Failed to create TASK_new:" << query.lastError().text();
+            } else {
+                // Copy data by column names to preserve values regardless of physical order
+                QString copySql = "INSERT INTO TASK_new (id, description, details, creation_dt, completion_dt, status_id, is_deleted) "
+                                  "SELECT id, description, details, creation_dt, completion_dt, status_id, is_deleted FROM TASK;";
+                if (!query.exec(copySql)) {
+                    qCritical() << "Failed to copy data to TASK_new:" << query.lastError().text();
+                } else {
+                    if (!query.exec("DROP TABLE TASK;")) {
+                        qCritical() << "Failed to drop old TASK table:" << query.lastError().text();
+                    } else if (!query.exec("ALTER TABLE TASK_new RENAME TO TASK;")) {
+                        qCritical() << "Failed to rename TASK_new to TASK:" << query.lastError().text();
+                    }
+                }
+            }
+            if (!query.exec("COMMIT;")) qWarning() << query.lastError().text();
         }
 
         // 3. Заполняем справочник начальными значениями, если он пуст
@@ -200,6 +259,7 @@ void MainWindow::onAddTask()
     if (dialog.exec() == QDialog::Accepted)
     {
         QString description = dialog.getTaskDescription();
+        QString details = dialog.getTaskDetails();
         QString statusName = dialog.getSelectedStatus();
         QString creationTime = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
 
@@ -215,10 +275,11 @@ void MainWindow::onAddTask()
 
         // 2. Вставляем данные через прямой SQL-запрос (вместо insertRecord)
         QSqlQuery insertQuery(m_db);
-        insertQuery.prepare("INSERT INTO TASK (description, creation_dt, status_id, is_deleted) "
-                            "VALUES (:desc, :created, :status_id, 0)");
+        insertQuery.prepare("INSERT INTO TASK (description, details, creation_dt, status_id, is_deleted) "
+                    "VALUES (:desc, :details, :created, :status_id, 0)");
 
         insertQuery.bindValue(":desc", description);
+        insertQuery.bindValue(":details", details);
         insertQuery.bindValue(":created", creationTime);
         insertQuery.bindValue(":status_id", statusId);
 
@@ -266,7 +327,7 @@ void MainWindow::onDeleteSoft()
     int row = selectedRows.first().row();
 
     // Soft Delete: просто меняем флаг is_deleted на 1 (столбец с индексом 5)
-    if (m_model->setData(m_model->index(row, 5), 1))
+    if (m_model->setData(m_model->index(row, MainWindow::COL_IS_DELETED), 1))
     {
         if (m_model->submitAll())
         {
@@ -324,21 +385,23 @@ void MainWindow::onEditTask()
     int row = selectedRows.first().row();
 
     // 2. Извлекаем текущие данные из модели
-    // Нам нужны: ID (0), Описание (1) и Имя Статуса (4)
-    int taskId = m_model->data(m_model->index(row, 0)).toInt();
-    QString currentDesc = m_model->data(m_model->index(row, 1)).toString();
-    QString currentStatus = m_model->data(m_model->index(row, 4)).toString(); // QSqlRelationalTableModel крутой и отдает нам текст!
+    // Нам нужны: ID (0), Описание (1), Подробное описание (2) и Имя Статуса (5)
+    int taskId = m_model->data(m_model->index(row, MainWindow::COL_ID)).toInt();
+    QString currentDesc = m_model->data(m_model->index(row, MainWindow::COL_DESC)).toString();
+    QString currentDetails = m_model->data(m_model->index(row, MainWindow::COL_DETAILS)).toString();
+    QString currentStatus = m_model->data(m_model->index(row, MainWindow::COL_STATUS)).toString(); // QSqlRelationalTableModel крутой и отдает нам текст!
 
     // 3. Создаем диалог и заполняем его данными
     AddTaskDialog dialog(this);
     dialog.setWindowTitle(tr("Редактировать задачу")); // Меняем заголовок
-    dialog.setTaskData(currentDesc, currentStatus);
+    dialog.setTaskData(currentDesc, currentDetails, currentStatus);
 
     // 4. Запускаем диалог и ждем, пока пользователь нажмет "ОК"
     if (dialog.exec() == QDialog::Accepted)
     {
         // 5. Получаем НОВЫЕ данные из диалога
         QString newDesc = dialog.getTaskDescription();
+        QString newDetails = dialog.getTaskDetails();
         QString newStatusName = dialog.getSelectedStatus();
 
         // 6. Получаем ID нового статуса
@@ -362,12 +425,14 @@ void MainWindow::onEditTask()
         // 8. Подготавливаем и выполняем прямой SQL-запрос UPDATE
         QSqlQuery updateQuery(m_db);
         updateQuery.prepare("UPDATE TASK SET "
-                            "description = :desc, "
-                            "status_id = :status_id, "
-                            "completion_dt = :completion_dt "
-                            "WHERE id = :id");
+                    "description = :desc, "
+                    "details = :details, "
+                    "status_id = :status_id, "
+                    "completion_dt = :completion_dt "
+                    "WHERE id = :id");
 
         updateQuery.bindValue(":desc", newDesc);
+        updateQuery.bindValue(":details", newDetails);
         updateQuery.bindValue(":status_id", newStatusId);
         updateQuery.bindValue(":completion_dt", completionDt);
         updateQuery.bindValue(":id", taskId);
@@ -381,6 +446,57 @@ void MainWindow::onEditTask()
         {
             qCritical() << "Failed to update task:" << updateQuery.lastError().text();
             QMessageBox::critical(this, tr("Ошибка"), tr("Не удалось обновить задачу."));
+        }
+    }
+}
+
+void MainWindow::onTableDoubleClicked(const QModelIndex &index)
+{
+    if (!index.isValid())
+        return;
+
+    int row = index.row();
+
+    int taskId = m_model->data(m_model->index(row, MainWindow::COL_ID)).toInt();
+    QString currentDesc = m_model->data(m_model->index(row, MainWindow::COL_DESC)).toString();
+    QString currentDetails = m_model->data(m_model->index(row, MainWindow::COL_DETAILS)).toString();
+    QString currentStatus = m_model->data(m_model->index(row, MainWindow::COL_STATUS)).toString();
+
+    AddTaskDialog dialog(this);
+    dialog.setWindowTitle(tr("Просмотр / редактирование задачи"));
+    dialog.setTaskData(currentDesc, currentDetails, currentStatus);
+
+    if (dialog.exec() == QDialog::Accepted)
+    {
+        QString newDesc = dialog.getTaskDescription();
+        QString newDetails = dialog.getTaskDetails();
+        QString newStatusName = dialog.getSelectedStatus();
+
+        QSqlQuery statusQuery(m_db);
+        statusQuery.prepare("SELECT id FROM STATUS WHERE name = :name");
+        statusQuery.bindValue(":name", newStatusName);
+        int newStatusId = 1;
+        if (statusQuery.exec() && statusQuery.next())
+            newStatusId = statusQuery.value(0).toInt();
+
+        QVariant completionDt;
+        if (newStatusId == m_statusDoneId)
+            completionDt = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
+
+        QSqlQuery updateQuery(m_db);
+        updateQuery.prepare("UPDATE TASK SET description = :desc, details = :details, status_id = :status_id, completion_dt = :completion_dt WHERE id = :id");
+        updateQuery.bindValue(":desc", newDesc);
+        updateQuery.bindValue(":details", newDetails);
+        updateQuery.bindValue(":status_id", newStatusId);
+        updateQuery.bindValue(":completion_dt", completionDt);
+        updateQuery.bindValue(":id", taskId);
+
+        if (updateQuery.exec()) {
+            m_model->select();
+            statusBar()->showMessage(tr("Задача обновлена"));
+        } else {
+            qCritical() << "Failed to update task (double-click):" << updateQuery.lastError().text();
+            QMessageBox::critical(this, tr("Ошибка"), tr("Не удалось сохранить изменения."));
         }
     }
 }
