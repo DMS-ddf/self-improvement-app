@@ -38,22 +38,36 @@ private slots:
     void onDeleteHard();
     void onEditTask();
     void onTableDoubleClicked(const QModelIndex &index);
+    void onHeaderClicked(int section);
 
 private:
     // Инициализация и подготовка БД
     void initDB();
+    void refreshView();
 
     // Виджеты и модель
     QTableView *tableView;
     QSqlDatabase m_db;
     QSqlRelationalTableModel *m_model;
+    QSqlQueryModel *m_viewModel;
 
     // Панель инструментов
     QToolBar *m_mainToolBar;
     QAction *m_addTaskAction;
     QAction *m_editTaskAction;
 
+    // Pagination UI and state
+    QWidget *m_paginationWidget;
+    QPushButton *m_prevPageButton;
+    QPushButton *m_nextPageButton;
+    QLabel *m_pageInfoLabel;
+    QComboBox *m_pageSizeCombo;
+    int m_pageSize;
+    int m_currentPage;
+
     int m_statusDoneId; // ID статуса "Сделано"
+    int m_sortColumn;
+    Qt::SortOrder m_sortOrder;
 };
 
 #endif // MAINWINDOW_H

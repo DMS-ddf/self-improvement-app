@@ -29,6 +29,8 @@ AddTaskDialog::AddTaskDialog(QWidget *parent) : QDialog(parent)
 
     QFormLayout *formLayout = new QFormLayout;
     formLayout->addRow(tr("Задание:"), m_descriptionEdit);
+    // Делаем поле описания более высоким для удобного ввода
+    m_detailsEdit->setMinimumHeight(140);
     formLayout->addRow(tr("Описание:"), m_detailsEdit);
     formLayout->addRow(tr("Статус:"), m_statusComboBox);
 
@@ -40,6 +42,14 @@ AddTaskDialog::AddTaskDialog(QWidget *parent) : QDialog(parent)
     mainLayout->addLayout(formLayout);
     mainLayout->addWidget(buttonBox);
     setLayout(mainLayout);
+    // Немного увеличим диалог по умолчанию, чтобы поля были комфортнее
+    setMinimumWidth(560);
+    setMinimumHeight(320);
+
+    // По умолчанию выбираем статус "Запланировано", если он есть
+    int idx = m_statusComboBox->findText(QStringLiteral("Запланировано"));
+    if (idx != -1)
+        m_statusComboBox->setCurrentIndex(idx);
 }
 
 QString AddTaskDialog::getTaskDescription() const

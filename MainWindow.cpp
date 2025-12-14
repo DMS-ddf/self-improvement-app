@@ -9,7 +9,15 @@
 #include <QTableView>
 #include <QHeaderView>
 #include <QDebug>
+#include <QStyledItemDelegate>
+#include <QPainter>
 #include <QSqlQuery>
+#include <QSqlQueryModel>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QPushButton>
+#include <QLabel>
+#include <QComboBox>
 #include <QSqlRecord>
 #include <QSqlError>
 #include <QSqlRelationalTableModel>
@@ -25,10 +33,87 @@ MainWindow::MainWindow(QWidget *parent)
 {
     // Базовая настройка окна
     resize(800, 600);
-    setWindowTitle("Self Improvement Tracker v0.3");
+    setWindowTitle("Self Improvement Tracker v1.0.2");
 
     tableView = new QTableView(this);
-    setCentralWidget(tableView);
+    // We'll embed the table into a central widget that also contains pagination controls
+    QWidget *central = new QWidget(this);
+    QVBoxLayout *centralLayout = new QVBoxLayout(central);
+    centralLayout->setContentsMargins(0,0,0,0);
+    centralLayout->addWidget(tableView);
+
+    // Pagination controls (created below)
+    m_paginationWidget = new QWidget(central);
+    QHBoxLayout *pLay = new QHBoxLayout(m_paginationWidget);
+    pLay->setContentsMargins(6,6,6,6);
+    pLay->setSpacing(8);
+    m_prevPageButton = new QPushButton(tr("< Пред"), m_paginationWidget);
+    m_nextPageButton = new QPushButton(tr("След >"), m_paginationWidget);
+    m_pageInfoLabel = new QLabel(m_paginationWidget);
+    m_pageSizeCombo = new QComboBox(m_paginationWidget);
+    m_pageSizeCombo->addItems({"25","50","75","100"});
+    m_pageSizeCombo->setCurrentIndex(0);
+    pLay->addWidget(m_prevPageButton);
+    pLay->addWidget(m_nextPageButton);
+    pLay->addStretch();
+    pLay->addWidget(new QLabel(tr("Показывать по:"), m_paginationWidget));
+    pLay->addWidget(m_pageSizeCombo);
+    pLay->addWidget(m_pageInfoLabel);
+    centralLayout->addWidget(m_paginationWidget);
+
+    setCentralWidget(central);
+
+    // Delegate to color the status column based on status text
+    class StatusColorDelegate : public QStyledItemDelegate {
+    public:
+        using QStyledItemDelegate::QStyledItemDelegate;
+        void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+            if (index.column() != MainWindow::COL_STATUS) {
+                QStyledItemDelegate::paint(painter, option, index);
+                return;
+            }
+
+            // If the row is selected, keep default selection rendering
+            if (option.state & QStyle::State_Selected) {
+                QStyledItemDelegate::paint(painter, option, index);
+                return;
+            }
+
+            QString status = index.data(Qt::DisplayRole).toString();
+            QColor color(Qt::white);
+            if (status == QStringLiteral("Запланировано")) color = QColor(200,200,200); // gray
+            else if (status == QStringLiteral("В процессе")) color = QColor(100,150,255); // blue
+            else if (status == QStringLiteral("Сделано")) color = QColor(180,255,180); // green
+            else if (status == QStringLiteral("Отменено")) color = QColor(255,180,180); // red
+            else if (status == QStringLiteral("Отложено")) color = QColor(255,200,120); // orange
+
+            painter->save();
+            painter->fillRect(option.rect, color);
+            painter->setFont(option.font);
+            QFontMetrics fm(option.font);
+            QString elided = fm.elidedText(status, Qt::ElideRight, option.rect.width() - 8);
+            painter->setPen(Qt::black);
+            painter->drawText(option.rect.adjusted(4, 0, -4, 0), Qt::AlignVCenter | Qt::AlignLeft, elided);
+            painter->restore();
+        }
+    };
+    // view model for paginated display
+    m_viewModel = new QSqlQueryModel(this);
+    m_pageSize = 25;
+    m_currentPage = 0;
+
+    // connect pagination UI
+    connect(m_prevPageButton, &QPushButton::clicked, this, [this]() {
+        if (m_currentPage > 0) { --m_currentPage; refreshView(); }
+    });
+    connect(m_nextPageButton, &QPushButton::clicked, this, [this]() {
+        ++m_currentPage; refreshView();
+    });
+    connect(m_pageSizeCombo, &QComboBox::currentTextChanged, this, [this](const QString &text){
+        m_pageSize = text.toInt();
+        m_currentPage = 0;
+        refreshView();
+    });
 
     // --- Меню "Файл" ---
     QAction *exitAction = new QAction(tr("В&ыход"), this);
@@ -81,9 +166,13 @@ MainWindow::MainWindow(QWidget *parent)
     m_model->select();
 
     // Применяем модель к таблице
-    tableView->setModel(m_model);
+    // The table will show the paginated view model
+    tableView->setModel(m_viewModel);
     // Делегат нужен, чтобы таблица знала, как отрисовывать реляционные данные (выпадающие списки при редактировании)
+    // For editing operations we still keep a relational model (m_model) but visual display uses m_viewModel.
     tableView->setItemDelegate(new QSqlRelationalDelegate(tableView));
+    // Use custom delegate for coloring status cells
+    tableView->setItemDelegateForColumn(MainWindow::COL_STATUS, new StatusColorDelegate(tableView));
 
     // --- Настройка внешнего вида таблицы ---
     // Скрываем технические столбцы: ID (0) и флаг удаления (5)
@@ -104,6 +193,11 @@ MainWindow::MainWindow(QWidget *parent)
     header->setSectionResizeMode(MainWindow::COL_CREATION_DT, QHeaderView::ResizeToContents);
     header->setSectionResizeMode(MainWindow::COL_COMPLETION_DT, QHeaderView::ResizeToContents);
     header->setSectionResizeMode(MainWindow::COL_STATUS, QHeaderView::ResizeToContents);
+    // Enable clickable sorting via header
+    tableView->setSortingEnabled(true);
+    m_sortColumn = -1;
+    m_sortOrder = Qt::AscendingOrder;
+    connect(header, &QHeaderView::sectionClicked, this, &MainWindow::onHeaderClicked);
 
     // --- Настройка контекстного меню (ПКМ) ---
     tableView->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -129,6 +223,8 @@ MainWindow::MainWindow(QWidget *parent)
     addToolBar(Qt::TopToolBarArea, m_mainToolBar);
 
     statusBar()->showMessage(tr("Готов к работе"));
+    // initial fill
+    refreshView();
 }
 
 MainWindow::~MainWindow()
@@ -244,11 +340,35 @@ void MainWindow::initDB()
             if (!query.exec("COMMIT;")) qWarning() << query.lastError().text();
         }
 
-        // 3. Заполняем справочник начальными значениями, если он пуст
+        // 3. Заполняем/дополняем справочник начальными значениями.
+        // Если таблица пустая — вставляем полный набор. Если непустая — добавляем недостающие значения.
+        QStringList requiredStatuses = {"Запланировано", "В процессе", "Сделано", "Отложено", "Отменено"};
         if (query.exec("SELECT COUNT(*) FROM STATUS") && query.next() && query.value(0).toInt() == 0)
         {
             qDebug() << "Populating 'STATUS' table with default values...";
-            query.exec("INSERT INTO STATUS (name) VALUES ('В процессе'), ('Сделано'), ('Отменено');");
+            for (const QString &s : requiredStatuses) {
+                QSqlQuery ins(m_db);
+                ins.prepare("INSERT INTO STATUS (name) VALUES (:name);");
+                ins.bindValue(":name", s);
+                if (!ins.exec())
+                    qWarning() << "Failed to insert status" << s << ins.lastError().text();
+            }
+        } else {
+            // Ensure specific statuses exist (add missing ones)
+            for (const QString &s : requiredStatuses) {
+                QSqlQuery chk(m_db);
+                chk.prepare("SELECT COUNT(*) FROM STATUS WHERE name = :name");
+                chk.bindValue(":name", s);
+                if (chk.exec() && chk.next()) {
+                    if (chk.value(0).toInt() == 0) {
+                        QSqlQuery ins(m_db);
+                        ins.prepare("INSERT INTO STATUS (name) VALUES (:name);");
+                        ins.bindValue(":name", s);
+                        if (!ins.exec())
+                            qWarning() << "Failed to insert missing status" << s << ins.lastError().text();
+                    }
+                }
+            }
         }
     }
 }
@@ -263,30 +383,48 @@ void MainWindow::onAddTask()
         QString statusName = dialog.getSelectedStatus();
         QString creationTime = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
 
-        // 1. Получаем ID статуса (эта логика остается)
+        // 1. Получаем ID статуса по выбранному имени; если выбранный статус не найден,
+        // используем 'Запланировано' как рекомендованный по умолчанию, иначе fallback = 1.
         QSqlQuery statusQuery(m_db);
         statusQuery.prepare("SELECT id FROM STATUS WHERE name = :name");
         statusQuery.bindValue(":name", statusName);
-        int statusId = 1; // "В процессе" по умолчанию
-        if (statusQuery.exec() && statusQuery.next())
-        {
+        int statusId = 0;
+        if (statusQuery.exec() && statusQuery.next()) {
             statusId = statusQuery.value(0).toInt();
+        } else {
+            QString defaultStatusName = QStringLiteral("Запланировано");
+            QSqlQuery getDefault(m_db);
+            getDefault.prepare("SELECT id FROM STATUS WHERE name = :name");
+            getDefault.bindValue(":name", defaultStatusName);
+            if (getDefault.exec() && getDefault.next()) {
+                statusId = getDefault.value(0).toInt();
+            } else {
+                statusId = 1; // ultimate fallback
+            }
         }
 
         // 2. Вставляем данные через прямой SQL-запрос (вместо insertRecord)
         QSqlQuery insertQuery(m_db);
-        insertQuery.prepare("INSERT INTO TASK (description, details, creation_dt, status_id, is_deleted) "
-                    "VALUES (:desc, :details, :created, :status_id, 0)");
+        insertQuery.prepare("INSERT INTO TASK (description, details, creation_dt, completion_dt, status_id, is_deleted) "
+                    "VALUES (:desc, :details, :created, :completed, :status_id, 0)");
 
         insertQuery.bindValue(":desc", description);
         insertQuery.bindValue(":details", details);
         insertQuery.bindValue(":created", creationTime);
+
+        // Если задача создаётся сразу со статусом "Сделано", ставим completion_dt = creationTime
+        QVariant completionDt;
+        if (m_statusDoneId != -1 && statusId == m_statusDoneId) {
+            completionDt = creationTime;
+        }
+        insertQuery.bindValue(":completed", completionDt);
         insertQuery.bindValue(":status_id", statusId);
 
         if (insertQuery.exec())
         {
-            // 3. Просто обновляем модель, чтобы она увидела новую запись
+            // 3. Обновляем представление
             m_model->select();
+            refreshView();
             statusBar()->showMessage(tr("Задача успешно добавлена!"));
         }
         else
@@ -305,11 +443,17 @@ void MainWindow::onCustomContextMenu(const QPoint &pos)
     if (!index.isValid())
         return;
 
+    // Удобство: при ПКМ автоматически выделяем строку под курсором,
+    // чтобы действия (редактировать/удалить) применялись к этой строке.
+    tableView->selectRow(index.row());
+
     QMenu contextMenu(this);
+    QAction *actionEdit = contextMenu.addAction(tr("Редактировать"));
     QAction *actionSoftDelete = contextMenu.addAction(tr("Удалить (в корзину)"));
     QAction *actionHardDelete = contextMenu.addAction(tr("Удалить полностью"));
 
     // Используем connect с лямбдами или прямыми слотами
+    connect(actionEdit, &QAction::triggered, this, &MainWindow::onEditTask);
     connect(actionSoftDelete, &QAction::triggered, this, &MainWindow::onDeleteSoft);
     connect(actionHardDelete, &QAction::triggered, this, &MainWindow::onDeleteHard);
 
@@ -325,20 +469,16 @@ void MainWindow::onDeleteSoft()
         return;
 
     int row = selectedRows.first().row();
+    int taskId = m_viewModel->data(m_viewModel->index(row, 0)).toInt();
 
-    // Soft Delete: просто меняем флаг is_deleted на 1 (столбец с индексом 5)
-    if (m_model->setData(m_model->index(row, MainWindow::COL_IS_DELETED), 1))
-    {
-        if (m_model->submitAll())
-        {
-            // Обязательно обновляем модель, чтобы фильтр "is_deleted = 0" скрыл строку
-            m_model->select();
-            statusBar()->showMessage(tr("Задача перемещена в корзину"));
-        }
-        else
-        {
-            QMessageBox::warning(this, tr("Ошибка БД"), m_model->lastError().text());
-        }
+    QSqlQuery q(m_db);
+    q.prepare("UPDATE TASK SET is_deleted = 1 WHERE id = :id");
+    q.bindValue(":id", taskId);
+    if (q.exec()) {
+        refreshView();
+        statusBar()->showMessage(tr("Задача перемещена в корзину"));
+    } else {
+        QMessageBox::warning(this, tr("Ошибка БД"), q.lastError().text());
     }
 }
 
@@ -351,23 +491,21 @@ void MainWindow::onDeleteHard()
     // Запрашиваем подтверждение, так как действие необратимо
     QMessageBox::StandardButton reply;
     reply = QMessageBox::question(this, tr("Подтверждение"),
-                                  tr("Вы уверены, что хотите удалить эту задачу НАВСЕГДА?"),
+                                  tr("Вы уверены, что хотите удалить эту задачу? Это действие нельзя будет отменить."),
                                   QMessageBox::Yes | QMessageBox::No);
 
     if (reply == QMessageBox::Yes)
     {
-        // Hard Delete: физическое удаление строки из БД
-        m_model->removeRow(selectedRows.first().row());
-
-        if (m_model->submitAll())
-        {
-            m_model->select(); // Обновляем, чтобы убрать возможные пустые строки
+        int row = selectedRows.first().row();
+        int taskId = m_viewModel->data(m_viewModel->index(row, 0)).toInt();
+        QSqlQuery q(m_db);
+        q.prepare("DELETE FROM TASK WHERE id = :id");
+        q.bindValue(":id", taskId);
+        if (q.exec()) {
+            refreshView();
             statusBar()->showMessage(tr("Задача удалена полностью"));
-        }
-        else
-        {
-            QMessageBox::warning(this, tr("Ошибка БД"), m_model->lastError().text());
-            m_model->revertAll(); // Если не вышло, отменяем изменения в модели
+        } else {
+            QMessageBox::warning(this, tr("Ошибка БД"), q.lastError().text());
         }
     }
 }
@@ -384,12 +522,12 @@ void MainWindow::onEditTask()
 
     int row = selectedRows.first().row();
 
-    // 2. Извлекаем текущие данные из модели
+    // 2. Извлекаем текущие данные из view model (пагинация)
     // Нам нужны: ID (0), Описание (1), Подробное описание (2) и Имя Статуса (5)
-    int taskId = m_model->data(m_model->index(row, MainWindow::COL_ID)).toInt();
-    QString currentDesc = m_model->data(m_model->index(row, MainWindow::COL_DESC)).toString();
-    QString currentDetails = m_model->data(m_model->index(row, MainWindow::COL_DETAILS)).toString();
-    QString currentStatus = m_model->data(m_model->index(row, MainWindow::COL_STATUS)).toString(); // QSqlRelationalTableModel крутой и отдает нам текст!
+    int taskId = m_viewModel->data(m_viewModel->index(row, 0)).toInt();
+    QString currentDesc = m_viewModel->data(m_viewModel->index(row, 1)).toString();
+    QString currentDetails = m_viewModel->data(m_viewModel->index(row, 2)).toString();
+    QString currentStatus = m_viewModel->data(m_viewModel->index(row, 5)).toString();
 
     // 3. Создаем диалог и заполняем его данными
     AddTaskDialog dialog(this);
@@ -439,7 +577,8 @@ void MainWindow::onEditTask()
 
         if (updateQuery.exec())
         {
-            m_model->select(); // Обновляем таблицу, чтобы увидеть изменения
+            m_model->select(); // Keep relational model in sync
+            refreshView();
             statusBar()->showMessage(tr("Задача успешно обновлена!"));
         }
         else
@@ -457,10 +596,10 @@ void MainWindow::onTableDoubleClicked(const QModelIndex &index)
 
     int row = index.row();
 
-    int taskId = m_model->data(m_model->index(row, MainWindow::COL_ID)).toInt();
-    QString currentDesc = m_model->data(m_model->index(row, MainWindow::COL_DESC)).toString();
-    QString currentDetails = m_model->data(m_model->index(row, MainWindow::COL_DETAILS)).toString();
-    QString currentStatus = m_model->data(m_model->index(row, MainWindow::COL_STATUS)).toString();
+    int taskId = m_viewModel->data(m_viewModel->index(row, 0)).toInt();
+    QString currentDesc = m_viewModel->data(m_viewModel->index(row, 1)).toString();
+    QString currentDetails = m_viewModel->data(m_viewModel->index(row, 2)).toString();
+    QString currentStatus = m_viewModel->data(m_viewModel->index(row, 5)).toString();
 
     AddTaskDialog dialog(this);
     dialog.setWindowTitle(tr("Просмотр / редактирование задачи"));
@@ -493,10 +632,90 @@ void MainWindow::onTableDoubleClicked(const QModelIndex &index)
 
         if (updateQuery.exec()) {
             m_model->select();
+            refreshView();
             statusBar()->showMessage(tr("Задача обновлена"));
         } else {
             qCritical() << "Failed to update task (double-click):" << updateQuery.lastError().text();
             QMessageBox::critical(this, tr("Ошибка"), tr("Не удалось сохранить изменения."));
         }
     }
+}
+
+void MainWindow::onHeaderClicked(int section)
+{
+    if (section < 0)
+        return;
+
+    if (m_sortColumn == section) {
+        // toggle order
+        m_sortOrder = (m_sortOrder == Qt::AscendingOrder) ? Qt::DescendingOrder : Qt::AscendingOrder;
+    } else {
+        m_sortColumn = section;
+        m_sortOrder = Qt::AscendingOrder;
+    }
+
+    // Apply sort to the view by re-querying with new ORDER BY
+    refreshView();
+
+    // Update visual indicator
+    QHeaderView *header = tableView->horizontalHeader();
+    header->setSortIndicator(m_sortColumn, m_sortOrder);
+    header->setSortIndicatorShown(true);
+}
+
+void MainWindow::refreshView()
+{
+    // compute total rows
+    QSqlQuery countQ(m_db);
+    int total = 0;
+    if (countQ.exec("SELECT COUNT(*) FROM TASK WHERE is_deleted = 0")) {
+        if (countQ.next()) total = countQ.value(0).toInt();
+    }
+
+    int offset = m_currentPage * m_pageSize;
+    if (offset < 0) offset = 0;
+
+    // Map sort column to DB column name
+    QString orderBy = "creation_dt DESC";
+    if (m_sortColumn >= 0) {
+        switch (m_sortColumn) {
+            case MainWindow::COL_DESC: orderBy = "description"; break;
+            case MainWindow::COL_DETAILS: orderBy = "details"; break;
+            case MainWindow::COL_CREATION_DT: orderBy = "creation_dt"; break;
+            case MainWindow::COL_COMPLETION_DT: orderBy = "completion_dt"; break;
+            case MainWindow::COL_STATUS: orderBy = "STATUS.name"; break;
+            default: orderBy = "creation_dt"; break;
+        }
+        orderBy += (m_sortOrder == Qt::DescendingOrder) ? " DESC" : " ASC";
+    }
+
+    QString sql = QString("SELECT TASK.id, TASK.description, TASK.details, TASK.creation_dt, TASK.completion_dt, STATUS.name as status, TASK.is_deleted "
+                          "FROM TASK LEFT JOIN STATUS ON TASK.status_id = STATUS.id "
+                          "WHERE TASK.is_deleted = 0 "
+                          "ORDER BY %1 "
+                          "LIMIT %2 OFFSET %3;").arg(orderBy).arg(m_pageSize).arg(offset);
+
+    m_viewModel->setQuery(sql, m_db);
+    // set headers
+    m_viewModel->setHeaderData(1, Qt::Horizontal, tr("Задание"));
+    m_viewModel->setHeaderData(2, Qt::Horizontal, tr("Описание"));
+    m_viewModel->setHeaderData(3, Qt::Horizontal, tr("Дата создания"));
+    m_viewModel->setHeaderData(4, Qt::Horizontal, tr("Дата выполнения"));
+    m_viewModel->setHeaderData(5, Qt::Horizontal, tr("Статус"));
+
+    tableView->setModel(m_viewModel);
+    // reapply delegates and header modes
+    tableView->setItemDelegateForColumn(MainWindow::COL_STATUS, tableView->itemDelegateForColumn(MainWindow::COL_STATUS));
+    QHeaderView *header = tableView->horizontalHeader();
+    header->setSectionResizeMode(MainWindow::COL_DESC, QHeaderView::ResizeToContents);
+    header->setSectionResizeMode(MainWindow::COL_DETAILS, QHeaderView::Stretch);
+    header->setSectionResizeMode(MainWindow::COL_CREATION_DT, QHeaderView::ResizeToContents);
+    header->setSectionResizeMode(MainWindow::COL_COMPLETION_DT, QHeaderView::ResizeToContents);
+    header->setSectionResizeMode(MainWindow::COL_STATUS, QHeaderView::ResizeToContents);
+
+    int totalPages = qMax(1, (total + m_pageSize - 1) / m_pageSize);
+    if (m_currentPage >= totalPages) m_currentPage = totalPages - 1;
+    m_pageInfoLabel->setText(tr("Стр. %1 / %2 (%3)").arg(m_currentPage+1).arg(totalPages).arg(total));
+    m_prevPageButton->setEnabled(m_currentPage > 0);
+    m_nextPageButton->setEnabled((m_currentPage+1) < totalPages);
 }
