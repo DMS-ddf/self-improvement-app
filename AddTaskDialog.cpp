@@ -18,6 +18,9 @@ AddTaskDialog::AddTaskDialog(QWidget *parent) : QDialog(parent)
     m_detailsEdit = new QTextEdit(this);
     m_statusComboBox = new QComboBox(this);
 
+    // Show a light placeholder to indicate default name when left empty
+    m_descriptionEdit->setPlaceholderText(tr("Новая задача"));
+
     // Загрузить статусы из БД
     QSqlQuery query;
     if (query.exec("SELECT name FROM STATUS")) {
@@ -83,11 +86,11 @@ void AddTaskDialog::setTaskData(const QString &description, const QString &detai
 
 void AddTaskDialog::accept()
 {
-    // .trimmed() убирает пробелы по краям и проверяет, не осталась ли строка пустой
-    if (m_descriptionEdit->text().trimmed().isEmpty()) {
-        QMessageBox::warning(this, tr("Ошибка валидации"), tr("Поле 'Задание' не может быть пустым."));
-        m_descriptionEdit->setFocus();
-        return;
+    // If the description is empty, fall back to a sensible default rather than blocking the user.
+    QString desc = m_descriptionEdit->text().trimmed();
+    if (desc.isEmpty()) {
+        desc = tr("Новая задача");
+        m_descriptionEdit->setText(desc);
     }
     QDialog::accept();
 }

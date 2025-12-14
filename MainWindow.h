@@ -10,6 +10,12 @@ class QTableView;
 class QSqlRelationalTableModel;
 class QToolBar;
 class QAction;
+class QSqlQueryModel;
+class QPushButton;
+class QLabel;
+class QComboBox;
+class QWidget;
+class QStyledItemDelegate;
 
 class MainWindow : public QMainWindow
 {
@@ -64,6 +70,9 @@ private:
     QComboBox *m_pageSizeCombo;
     int m_pageSize;
     int m_currentPage;
+
+    QStyledItemDelegate *m_statusDelegate;
+    QPushButton *m_addTaskButton;
 
     int m_statusDoneId; // ID статуса "Сделано"
     int m_sortColumn;

@@ -51,15 +51,28 @@ MainWindow::MainWindow(QWidget *parent)
     m_nextPageButton = new QPushButton(tr("След >"), m_paginationWidget);
     m_pageInfoLabel = new QLabel(m_paginationWidget);
     m_pageSizeCombo = new QComboBox(m_paginationWidget);
-    m_pageSizeCombo->addItems({"25","50","75","100"});
+    m_pageSizeCombo->addItems({"10","25","50","75","100"});
     m_pageSizeCombo->setCurrentIndex(0);
     pLay->addWidget(m_prevPageButton);
     pLay->addWidget(m_nextPageButton);
+    // Prominent Add button placed near pagination controls for easy access
+    m_addTaskButton = new QPushButton(tr("+ Добавить"), m_paginationWidget);
+    m_addTaskButton->setToolTip(tr("Добавить новую задачу (Ctrl+N)"));
+    m_addTaskButton->setMinimumHeight(28);
+    m_addTaskButton->setStyleSheet("QPushButton{background-color:#3a86ff;color:white;border-radius:4px;padding:6px 12px;} QPushButton:hover{background-color:#2f6fe0;}");
+    connect(m_addTaskButton, &QPushButton::clicked, this, &MainWindow::onAddTask);
+    pLay->addWidget(m_addTaskButton);
     pLay->addStretch();
     pLay->addWidget(new QLabel(tr("Показывать по:"), m_paginationWidget));
     pLay->addWidget(m_pageSizeCombo);
     pLay->addWidget(m_pageInfoLabel);
     centralLayout->addWidget(m_paginationWidget);
+
+    // Ensure the pagination bar stays visible and has fixed height
+    m_paginationWidget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    m_pageInfoLabel->setText(tr("Стр. 1 / 1 (0)"));
+    centralLayout->setStretch(0, 1); // tableView expands
+    centralLayout->setStretch(1, 0); // pagination stays compact
 
     setCentralWidget(central);
 
@@ -99,7 +112,8 @@ MainWindow::MainWindow(QWidget *parent)
     };
     // view model for paginated display
     m_viewModel = new QSqlQueryModel(this);
-    m_pageSize = 25;
+    // Initialize page size from the combo box so the initial view uses the selected value (default "10").
+    m_pageSize = m_pageSizeCombo->currentText().toInt();
     m_currentPage = 0;
 
     // connect pagination UI
@@ -171,8 +185,10 @@ MainWindow::MainWindow(QWidget *parent)
     // Делегат нужен, чтобы таблица знала, как отрисовывать реляционные данные (выпадающие списки при редактировании)
     // For editing operations we still keep a relational model (m_model) but visual display uses m_viewModel.
     tableView->setItemDelegate(new QSqlRelationalDelegate(tableView));
-    // Use custom delegate for coloring status cells
-    tableView->setItemDelegateForColumn(MainWindow::COL_STATUS, new StatusColorDelegate(tableView));
+    // Create and store the custom delegate for coloring status cells so it can be
+    // reapplied after model replacements in refreshView().
+    m_statusDelegate = new StatusColorDelegate(tableView);
+    tableView->setItemDelegateForColumn(MainWindow::COL_STATUS, m_statusDelegate);
 
     // --- Настройка внешнего вида таблицы ---
     // Скрываем технические столбцы: ID (0) и флаг удаления (5)
@@ -207,6 +223,7 @@ MainWindow::MainWindow(QWidget *parent)
     // --- Панель инструментов (ToolBar) ---
     m_addTaskAction = new QAction(tr("&Добавить"), this);
     m_addTaskAction->setStatusTip(tr("Добавить новую задачу"));
+    m_addTaskAction->setShortcut(QKeySequence("Ctrl+N"));
     connect(m_addTaskAction, &QAction::triggered, this, &MainWindow::onAddTask);
 
     m_editTaskAction = new QAction(tr("&Редактировать"), this);
@@ -214,13 +231,10 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_editTaskAction, &QAction::triggered, this, &MainWindow::onEditTask);
 
     m_mainToolBar = new QToolBar(tr("Инструменты"), this);
-    // Запрещаем скрывать панель через контекстное меню, чтобы не сбивать пользователя
+    // Пока панель инструментов пустая — скрываем её, чтобы не выглядела несуразно.
     m_mainToolBar->setContextMenuPolicy(Qt::PreventContextMenu);
     m_mainToolBar->setMovable(false); // Закрепляем панель
-    m_mainToolBar->addAction(m_addTaskAction);
-    m_mainToolBar->addAction(m_editTaskAction); // Добавляем кнопку на панель
-
-    addToolBar(Qt::TopToolBarArea, m_mainToolBar);
+    m_mainToolBar->hide();
 
     statusBar()->showMessage(tr("Готов к работе"));
     // initial fill
@@ -704,8 +718,11 @@ void MainWindow::refreshView()
     m_viewModel->setHeaderData(5, Qt::Horizontal, tr("Статус"));
 
     tableView->setModel(m_viewModel);
-    // reapply delegates and header modes
-    tableView->setItemDelegateForColumn(MainWindow::COL_STATUS, tableView->itemDelegateForColumn(MainWindow::COL_STATUS));
+    // Ensure technical columns remain hidden when the view model is reset
+    tableView->hideColumn(MainWindow::COL_ID);
+    tableView->hideColumn(MainWindow::COL_IS_DELETED);
+    // Reapply our stored status-color delegate to the status column
+    tableView->setItemDelegateForColumn(MainWindow::COL_STATUS, m_statusDelegate);
     QHeaderView *header = tableView->horizontalHeader();
     header->setSectionResizeMode(MainWindow::COL_DESC, QHeaderView::ResizeToContents);
     header->setSectionResizeMode(MainWindow::COL_DETAILS, QHeaderView::Stretch);
