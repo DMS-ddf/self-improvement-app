@@ -1,8 +1,42 @@
-# Build artifacts
+# Build directories and generated files
 /build/
-/build-*
+/CMakeFiles/
+/CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Build outputs
+/build/bin/
 *.exe
 *.dll
-*.db
+*.lib
+*.a
+
+# WiX
+*.wixobj
+*.wixpdb
+*.msi
+Files_generated.wxs
+
+# Qt / generated
+moc_*.cpp
+*.moc
+*.qrc
+*.rcc
+
+# IDEs and editors
+.vs/
+.idea/
+*.user
+*.suo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Backups and temp
+*.bak
+*~
+
+# Project docs (optional) - keep README, but ignore large release dirs
 release/
-README_DEV.md

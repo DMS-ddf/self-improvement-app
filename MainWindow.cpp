@@ -33,7 +33,7 @@ MainWindow::MainWindow(QWidget *parent)
 {
     // Базовая настройка окна
     resize(800, 600);
-    setWindowTitle("Self Improvement Tracker v1.0.2");
+    setWindowTitle("Self Improvement Tracker v1.1.0");
 
     tableView = new QTableView(this);
     // We'll embed the table into a central widget that also contains pagination controls
@@ -145,7 +145,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_statusDoneId = -1; // Значение по умолчанию, если не найдем
     QSqlQuery statusQuery(m_db);
     statusQuery.prepare("SELECT id FROM STATUS WHERE name = :name");
-    statusQuery.bindValue(":name", tr("Сделано"));
+    statusQuery.bindValue(":name", QStringLiteral("Сделано"));
     if (statusQuery.exec() && statusQuery.next())
     {
         m_statusDoneId = statusQuery.value(0).toInt();
